@@ -1,0 +1,20 @@
+# MPLAB/XC16 generated output
+build/
+dist/
+debug/
+.generated_files/
+queuelogs/
+
+# MPLAB user/private machine settings
+nbproject/private/
+
+# Logs and trace files
+*.log
+*.log.*
+*.tmp
+*.bak
+*.bak*
+
+# Editor/system files
+.DS_Store
+Thumbs.db
