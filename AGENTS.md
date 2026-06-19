@@ -3,6 +3,7 @@
 ## Project Identity
 
 - Project: `Heat_Pump_DHWT.X`
+- GitHub repository: `https://github.com/fadiassi411/-Heat_Pump_DHWT`
 - MCU: `dsPIC33CK256MP505`
 - Compiler/toolchain: Microchip `XC16` version `2.10`
 - Device family pack: `Microchip dsPIC33CK-MP_DFP` version `1.15.423`
@@ -762,6 +763,7 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 - Do not change working configuration bits unless explicitly asked.
 - Do not change working ADC initialization unless explicitly asked.
 - Do not rewrite the full project unless necessary.
+- When modifying firmware code, update `AGENTS.md` with the new behavior/pin mapping/debug variables as needed, then commit and push the updated code to `https://github.com/fadiassi411/-Heat_Pump_DHWT`.
 - Keep `main.c` clean; it should call functions from modules instead of accumulating full feature implementations.
 - Keep generated MPLAB folders and files untouched unless the requested change requires project metadata/build integration.
 - Preserve existing debug variables unless there is a requested reason to rename or remove them.
