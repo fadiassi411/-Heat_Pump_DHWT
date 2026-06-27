@@ -16,24 +16,25 @@
 #define EEPROM24FC04_WRITE_CYCLE_DELAY_MS    1U
 #define EEPROM24FC04_CONTROL_BASE_7BIT       0x50U
 #define EEPROM24FC04_MAGIC                   0x4553U
-#define EEPROM24FC04_VERSION                 3U
+#define EEPROM24FC04_VERSION                 4U
 
 #define SETPOINTS_MAGIC_L_OFFSET             0U
 #define SETPOINTS_MAGIC_H_OFFSET             1U
 #define SETPOINTS_VERSION_OFFSET             2U
 #define SETPOINTS_RESERVED_OFFSET            3U
 #define SETPOINTS_TANK_OFFSET                4U
-#define SETPOINTS_SUPERHEAT_OFFSET           8U
-#define SETPOINTS_TANK_HYST_OFFSET           12U
-#define SETPOINTS_EEV_STARTUP_OFFSET         16U
-#define SETPOINTS_EEV_MAX_OFFSET             18U
-#define SETPOINTS_COMP_ASC_OFFSET            20U
-#define SETPOINTS_LP_BYPASS_OFFSET           22U
-#define SETPOINTS_PUMP_PRE_OFFSET            24U
-#define SETPOINTS_PUMP_POST_OFFSET           26U
-#define SETPOINTS_HEATER_OFFSET              28U
-#define SETPOINTS_RESERVED_2_OFFSET          29U
-#define SETPOINTS_CRC_OFFSET                 30U
+#define SETPOINTS_HEATER_TANK_OFFSET         8U
+#define SETPOINTS_SUPERHEAT_OFFSET           12U
+#define SETPOINTS_TANK_HYST_OFFSET           16U
+#define SETPOINTS_HEATER_HYST_OFFSET         20U
+#define SETPOINTS_EEV_STARTUP_OFFSET         24U
+#define SETPOINTS_EEV_MAX_OFFSET             26U
+#define SETPOINTS_COMP_ASC_OFFSET            28U
+#define SETPOINTS_LP_BYPASS_OFFSET           30U
+#define SETPOINTS_PUMP_PRE_OFFSET            32U
+#define SETPOINTS_PUMP_POST_OFFSET           34U
+#define SETPOINTS_HEATER_OFFSET              36U
+#define SETPOINTS_CRC_OFFSET                 37U
 
 volatile uint16_t g_eeprom_present = 0;
 volatile uint16_t g_eeprom_error = EEPROM24FC04_ERROR_NONE;
@@ -42,8 +43,10 @@ volatile uint16_t g_eeprom_last_data = 0;
 volatile uint16_t g_eeprom_write_count = 0;
 volatile uint16_t g_eeprom_read_count = 0;
 volatile float g_tank_temp_setpoint_c = EEPROM24FC04_TANK_TEMP_DEFAULT_C;
+volatile float g_heater_temp_setpoint_c = EEPROM24FC04_HEATER_TEMP_DEFAULT_C;
 volatile float g_superheat_delta_t_setpoint_c = EEPROM24FC04_SUPERHEAT_DT_DEFAULT_C;
 volatile float g_tank_hysteresis_c = EEPROM24FC04_TANK_HYST_DEFAULT_C;
+volatile float g_heater_hysteresis_c = EEPROM24FC04_HEATER_HYST_DEFAULT_C;
 volatile uint16_t g_eev_startup_steps_setting = EEPROM24FC04_EEV_STARTUP_DEFAULT;
 volatile uint16_t g_eev_max_steps_setting = EEPROM24FC04_EEV_MAX_DEFAULT;
 volatile uint16_t g_compressor_anti_short_cycle_sec = EEPROM24FC04_COMP_ASC_DEFAULT_SEC;
@@ -227,8 +230,10 @@ void EEPROM24FC04_LoadDefaultSettings(EEPROM24FC04_Settings *settings)
     }
 
     settings->tank_temp_setpoint_c = EEPROM24FC04_TANK_TEMP_DEFAULT_C;
+    settings->heater_temp_setpoint_c = EEPROM24FC04_HEATER_TEMP_DEFAULT_C;
     settings->superheat_delta_t_setpoint_c = EEPROM24FC04_SUPERHEAT_DT_DEFAULT_C;
     settings->tank_hysteresis_c = EEPROM24FC04_TANK_HYST_DEFAULT_C;
+    settings->heater_hysteresis_c = EEPROM24FC04_HEATER_HYST_DEFAULT_C;
     settings->eev_startup_steps = EEPROM24FC04_EEV_STARTUP_DEFAULT;
     settings->eev_max_steps = EEPROM24FC04_EEV_MAX_DEFAULT;
     settings->compressor_anti_short_cycle_sec = EEPROM24FC04_COMP_ASC_DEFAULT_SEC;
@@ -606,8 +611,10 @@ static uint16_t EEPROM24FC04_LoadU16(const uint8_t *record, uint8_t offset)
 static void EEPROM24FC04_ApplySettingsToGlobals(const EEPROM24FC04_Settings *settings)
 {
     g_tank_temp_setpoint_c = settings->tank_temp_setpoint_c;
+    g_heater_temp_setpoint_c = settings->heater_temp_setpoint_c;
     g_superheat_delta_t_setpoint_c = settings->superheat_delta_t_setpoint_c;
     g_tank_hysteresis_c = settings->tank_hysteresis_c;
+    g_heater_hysteresis_c = settings->heater_hysteresis_c;
     g_eev_startup_steps_setting = settings->eev_startup_steps;
     g_eev_max_steps_setting = settings->eev_max_steps;
     g_compressor_anti_short_cycle_sec = settings->compressor_anti_short_cycle_sec;
@@ -625,8 +632,10 @@ static void EEPROM24FC04_BuildSettingsRecord(const EEPROM24FC04_Settings *settin
     record[SETPOINTS_VERSION_OFFSET] = EEPROM24FC04_VERSION;
     record[SETPOINTS_RESERVED_OFFSET] = 0U;
     (void)memcpy(&record[SETPOINTS_TANK_OFFSET], &settings->tank_temp_setpoint_c, sizeof(float));
+    (void)memcpy(&record[SETPOINTS_HEATER_TANK_OFFSET], &settings->heater_temp_setpoint_c, sizeof(float));
     (void)memcpy(&record[SETPOINTS_SUPERHEAT_OFFSET], &settings->superheat_delta_t_setpoint_c, sizeof(float));
     (void)memcpy(&record[SETPOINTS_TANK_HYST_OFFSET], &settings->tank_hysteresis_c, sizeof(float));
+    (void)memcpy(&record[SETPOINTS_HEATER_HYST_OFFSET], &settings->heater_hysteresis_c, sizeof(float));
     EEPROM24FC04_StoreU16(record, SETPOINTS_EEV_STARTUP_OFFSET, settings->eev_startup_steps);
     EEPROM24FC04_StoreU16(record, SETPOINTS_EEV_MAX_OFFSET, settings->eev_max_steps);
     EEPROM24FC04_StoreU16(record, SETPOINTS_COMP_ASC_OFFSET, settings->compressor_anti_short_cycle_sec);
@@ -634,7 +643,6 @@ static void EEPROM24FC04_BuildSettingsRecord(const EEPROM24FC04_Settings *settin
     EEPROM24FC04_StoreU16(record, SETPOINTS_PUMP_PRE_OFFSET, settings->pump_pre_run_sec);
     EEPROM24FC04_StoreU16(record, SETPOINTS_PUMP_POST_OFFSET, settings->pump_post_run_sec);
     record[SETPOINTS_HEATER_OFFSET] = (settings->heater_enabled != false) ? 1U : 0U;
-    record[SETPOINTS_RESERVED_2_OFFSET] = 0U;
     record[SETPOINTS_CRC_OFFSET] = EEPROM24FC04_CRC8(record, SETPOINTS_CRC_OFFSET);
 }
 
@@ -663,8 +671,10 @@ static bool EEPROM24FC04_ParseSettingsRecord(const uint8_t *record,
     }
 
     (void)memcpy(&settings->tank_temp_setpoint_c, &record[SETPOINTS_TANK_OFFSET], sizeof(float));
+    (void)memcpy(&settings->heater_temp_setpoint_c, &record[SETPOINTS_HEATER_TANK_OFFSET], sizeof(float));
     (void)memcpy(&settings->superheat_delta_t_setpoint_c, &record[SETPOINTS_SUPERHEAT_OFFSET], sizeof(float));
     (void)memcpy(&settings->tank_hysteresis_c, &record[SETPOINTS_TANK_HYST_OFFSET], sizeof(float));
+    (void)memcpy(&settings->heater_hysteresis_c, &record[SETPOINTS_HEATER_HYST_OFFSET], sizeof(float));
     settings->eev_startup_steps = EEPROM24FC04_LoadU16(record, SETPOINTS_EEV_STARTUP_OFFSET);
     settings->eev_max_steps = EEPROM24FC04_LoadU16(record, SETPOINTS_EEV_MAX_OFFSET);
     settings->compressor_anti_short_cycle_sec = EEPROM24FC04_LoadU16(record, SETPOINTS_COMP_ASC_OFFSET);

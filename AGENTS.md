@@ -80,8 +80,8 @@ MPLAB project metadata lists these project files:
   - Shares the existing I2C1 bus with the LCD without changing the working RB9/SDA1 and RB8/SCL1 pin setup.
   - Uses 24FC04 block-select addressing: 0x000..0x0FF use B0 = 0, 0x100..0x1FF use B0 = 1, then only the lower 8-bit word address is sent.
   - Splits writes on 16-byte page boundaries, ACK-polls after writes, and uses timeouts to avoid hangs when EEPROM hardware is missing.
-  - Stores control settings with magic/version/CRC8 validation: tank temperature, superheat delta-T, tank hysteresis, EEV startup/max steps, compressor and pump timing, LP bypass time, and heater enable.
-  - Current settings record version is `3`; this invalidates older EEPROM records and writes safe defaults, including the fixed 50.0 C DHWT tank setpoint.
+  - Stores control settings with magic/version/CRC8 validation: compressor DHWT setpoint, electric heater DHWT setpoint, superheat delta-T, compressor/tank hysteresis, heater hysteresis, EEV startup/max steps, compressor and pump timing, LP bypass time, and heater enable.
+  - Current settings record version is `4`; this invalidates older EEPROM records and writes safe defaults, including the 50.0 C compressor DHWT setpoint and 60.0 C electric heater setpoint.
 
 - `eeprom_24fc04.h`
   - Public header for the EEPROM driver.
@@ -127,7 +127,10 @@ MPLAB project metadata lists these project files:
   - When `HP_IGNORE_SENSOR_FAULTS_FOR_BENCH_TEST` is `0`, NTC sensor faults are included in `g_hp_active_fault` and block the control state machine.
   - Uses `TopDHWTS` and `BotDHWTS` as the real DHWT tank demand sensors.
   - Starts heating from bottom tank temperature and stops heating from top tank temperature.
-  - Uses the EEPROM-backed fixed DHWT tank setpoint `g_tank_temp_setpoint_c` directly; default is 50.0 C.
+  - Uses the EEPROM-backed fixed compressor DHWT tank setpoint `g_tank_temp_setpoint_c` directly; default is 50.0 C.
+  - Uses the EEPROM-backed electric heater DHWT setpoint `g_heater_temp_setpoint_c`; default is 60.0 C.
+  - When compressor heating reaches 50.0 C, compressor permission stops, the EEV is closed to 0%, pump/fan post-run completes, then the electric heater may heat to 60.0 C.
+  - If DHWT falls below the 50.0 C compressor stage, compressor heating has priority over heater heating.
   - OST remains available as a sensor/fault input, but it is not used to compensate or change the DHWT tank setpoint.
   - Invalid TopDHWTS or BotDHWTS keeps heating request off and the state machine safely in `HP_STATE_IDLE`.
 
@@ -333,8 +336,8 @@ Runtime/debug outputs are exposed as volatile globals for MPLAB watch/debugging:
 - EEV status: `g_eev_position_steps`, `g_eev_position_percent`, `g_eev_startup_close_done`, `g_eev_init_done`
 - LCD status: `g_lcd_i2c_state`, `g_lcd_i2c_error`, `g_lcd_i2c_updates`, `g_lcd_i2c_address`, `g_lcd_i2c_detected`
 - EEPROM status: `g_eeprom_present`, `g_eeprom_error`, `g_eeprom_last_addr`, `g_eeprom_last_data`, `g_eeprom_write_count`, `g_eeprom_read_count`
-- Settings: `g_tank_temp_setpoint_c`, `g_superheat_delta_t_setpoint_c`, `g_tank_hysteresis_c`, `g_eev_startup_steps_setting`, `g_eev_max_steps_setting`, `g_compressor_anti_short_cycle_sec`, `g_lp_startup_bypass_sec`, `g_pump_pre_run_sec`, `g_pump_post_run_sec`, `g_heater_enabled_setting`
-- Heat pump control status: `g_hp_state`, `g_hp_previous_state`, `g_hp_active_fault`, `g_hp_latched_fault`, `g_hp_heating_request`, `g_hp_compressor_allowed`, `g_hp_pump_command`, `g_hp_fan_command`, `g_hp_heater_command`, `g_hp_eev_target_percent`, `g_hp_eev_preposition_done`, `g_hp_eev_target_steps`, `g_hp_top_dhwt_temp_c`, `g_hp_bottom_dhwt_temp_c`, `g_hp_supply_hot_water_temp_c`, `g_hp_return_water_temp_c`, `g_hp_top_dhwt_valid`, `g_hp_bottom_dhwt_valid`, `g_hp_supply_hot_water_valid`, `g_hp_return_water_valid`, `g_hp_safety_fault`, `g_hp_state_elapsed_ms`, `g_hp_pump_pre_run_remaining_sec`, `g_hp_pump_post_run_remaining_sec`, `g_hp_anti_short_cycle_remaining_sec`, `g_hp_compressor_min_off_remaining_sec`, `g_hp_min_run_remaining_sec`, `g_hp_lp_bypass_remaining_sec`, `g_hp_compressor_start_ready`, `g_hp_flow_proving_active`, `g_hp_flow_proven`, `g_hp_fault_retry_count`, `g_hp_fault_retry_limit`, `g_hp_fault_retry_pending`, `g_hp_fault_lockout`, `g_hp_last_fault`, `g_hp_suction_temp_c`, `g_hp_evap_temp_c`, `g_hp_superheat_delta_t_c`, `g_hp_superheat_target_c`, `g_hp_suction_temp_valid`, `g_hp_evap_temp_valid`, `g_hp_eev_control_enabled`, `g_hp_eev_control_remaining_sec`, `g_hp_eev_last_step_command`, `g_hp_eev_control_max_percent`, `g_hp_eev_control_max_steps`, `g_hp_eev_control_limit_active`, `g_hp_eev_control_min_percent`, `g_hp_eev_control_min_steps`, `g_hp_eev_control_min_limit_active`
+- Settings: `g_tank_temp_setpoint_c`, `g_heater_temp_setpoint_c`, `g_superheat_delta_t_setpoint_c`, `g_tank_hysteresis_c`, `g_heater_hysteresis_c`, `g_eev_startup_steps_setting`, `g_eev_max_steps_setting`, `g_compressor_anti_short_cycle_sec`, `g_lp_startup_bypass_sec`, `g_pump_pre_run_sec`, `g_pump_post_run_sec`, `g_heater_enabled_setting`
+- Heat pump control status: `g_hp_state`, `g_hp_previous_state`, `g_hp_active_fault`, `g_hp_latched_fault`, `g_hp_heating_request`, `g_hp_heater_request`, `g_hp_compressor_allowed`, `g_hp_pump_command`, `g_hp_fan_command`, `g_hp_heater_command`, `g_hp_eev_target_percent`, `g_hp_eev_preposition_done`, `g_hp_eev_target_steps`, `g_hp_top_dhwt_temp_c`, `g_hp_bottom_dhwt_temp_c`, `g_hp_compressor_setpoint_c`, `g_hp_compressor_hysteresis_c`, `g_hp_heater_setpoint_c`, `g_hp_heater_hysteresis_c`, `g_hp_supply_hot_water_temp_c`, `g_hp_return_water_temp_c`, `g_hp_top_dhwt_valid`, `g_hp_bottom_dhwt_valid`, `g_hp_supply_hot_water_valid`, `g_hp_return_water_valid`, `g_hp_safety_fault`, `g_hp_state_elapsed_ms`, `g_hp_pump_pre_run_remaining_sec`, `g_hp_pump_post_run_remaining_sec`, `g_hp_anti_short_cycle_remaining_sec`, `g_hp_compressor_min_off_remaining_sec`, `g_hp_min_run_remaining_sec`, `g_hp_lp_bypass_remaining_sec`, `g_hp_compressor_start_ready`, `g_hp_flow_proving_active`, `g_hp_flow_proven`, `g_hp_fault_retry_count`, `g_hp_fault_retry_limit`, `g_hp_fault_retry_pending`, `g_hp_fault_lockout`, `g_hp_last_fault`, `g_hp_suction_temp_c`, `g_hp_evap_temp_c`, `g_hp_superheat_delta_t_c`, `g_hp_superheat_target_c`, `g_hp_suction_temp_valid`, `g_hp_evap_temp_valid`, `g_hp_eev_control_enabled`, `g_hp_eev_control_remaining_sec`, `g_hp_eev_last_step_command`, `g_hp_eev_control_max_percent`, `g_hp_eev_control_max_steps`, `g_hp_eev_control_limit_active`, `g_hp_eev_control_min_percent`, `g_hp_eev_control_min_steps`, `g_hp_eev_control_min_limit_active`
 - ADC read counters: `g_shwts_adc_read_counter`, `g_evpts_adc_read_counter`, `g_rhwts_adc_read_counter`, `g_topdhwts_adc_read_counter`, `g_botdhwts_adc_read_counter`, `g_ost_adc_read_counter`
 
 ### Fault Configuration
@@ -519,7 +522,7 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 
 - `g_hp_state`
   - Current Part 5 heat pump control state.
-  - Values are from `HeatPumpControl_State`: `HP_STATE_IDLE`, `HP_STATE_PRECHECK`, `HP_STATE_PUMP_PRE_RUN`, `HP_STATE_EEV_PREPOSITION`, `HP_STATE_COMPRESSOR_START`, `HP_STATE_RUNNING`, `HP_STATE_POST_RUN`, and `HP_STATE_FAULT`.
+  - Values are from `HeatPumpControl_State`: `HP_STATE_IDLE`, `HP_STATE_PRECHECK`, `HP_STATE_PUMP_PRE_RUN`, `HP_STATE_EEV_PREPOSITION`, `HP_STATE_COMPRESSOR_START`, `HP_STATE_RUNNING`, `HP_STATE_POST_RUN`, `HP_STATE_FAULT`, and `HP_STATE_HEATER_RUN`.
 
 - `g_hp_previous_state`
   - Previous heat pump control state before the most recent state transition.
@@ -535,10 +538,16 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - Part 5 does not implement complicated reset logic.
 
 - `g_hp_heating_request`
-  - Latched DHWT heating request.
-  - Set to `1` when `g_hp_bottom_dhwt_temp_c <= (g_tank_temp_setpoint_c - g_tank_hysteresis_c)`.
+  - Latched compressor-stage DHWT heating request.
+  - Set to `1` when `g_hp_bottom_dhwt_temp_c <= (g_tank_temp_setpoint_c - g_tank_hysteresis_c)` or when `g_hp_top_dhwt_temp_c < g_tank_temp_setpoint_c`.
   - Held at `1` until `g_hp_top_dhwt_temp_c >= g_tank_temp_setpoint_c`.
   - Forced to `0` if TopDHWTS or BotDHWTS is invalid.
+
+- `g_hp_heater_request`
+  - Latched electric-heater DHWT heating request.
+  - Set to `1` when heater is enabled, compressor request is clear, and `g_hp_top_dhwt_temp_c <= (g_heater_temp_setpoint_c - g_heater_hysteresis_c)`.
+  - Held at `1` until `g_hp_top_dhwt_temp_c >= g_heater_temp_setpoint_c`.
+  - Forced to `0` if compressor heating is requested or TopDHWTS/BotDHWTS is invalid.
 
 - `g_hp_top_dhwt_temp_c`
   - Copy of `g_topdhwts_temperature_c`, the top domestic hot water tank temperature.
@@ -579,7 +588,8 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 
 - `g_hp_pump_command`, `g_hp_fan_command`, `g_hp_heater_command`
   - In Part 5, `g_hp_pump_command` may become `1` during `HP_STATE_PUMP_PRE_RUN`, `HP_STATE_EEV_PREPOSITION`, `HP_STATE_COMPRESSOR_START`, `HP_STATE_RUNNING`, and `HP_STATE_POST_RUN`.
-  - `g_hp_fan_command` and `g_hp_heater_command` remain `0`.
+  - `g_hp_fan_command` may become `1` during compressor-start/running/post-run.
+  - `g_hp_heater_command` may become `1` only in `HP_STATE_HEATER_RUN` when `g_heater_enabled_setting != 0`.
 
 - `g_hp_eev_target_percent`
   - Part 5 sets this to `25` during EEV preposition, compressor-start timing, and running simulation.
@@ -642,35 +652,38 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - Send only the lower 8-bit word address byte after the control byte.
   - A0/A1/A2 package pins are not used for address selection on this EEPROM.
 - EEPROM memory map selected by firmware:
-  - `0x000..0x01E`: settings record, 31 bytes total.
+  - `0x000..0x025`: settings record, 38 bytes total.
   - `0x000`: magic low byte.
   - `0x001`: magic high byte.
-  - `0x002`: version byte, currently `2`.
+  - `0x002`: version byte, currently `4`.
   - `0x003`: reserved byte.
-  - `0x004..0x007`: water tank temperature setpoint as XC16 `float`.
-  - `0x008..0x00B`: superheat delta-T setpoint as XC16 `float`.
-  - `0x00C..0x00F`: tank hysteresis as XC16 `float`.
-  - `0x010..0x011`: EEV startup close steps as little-endian `uint16_t`.
-  - `0x012..0x013`: EEV maximum open steps as little-endian `uint16_t`.
-  - `0x014..0x015`: compressor anti-short-cycle time in seconds as little-endian `uint16_t`.
-  - `0x016..0x017`: LP startup bypass time in seconds as little-endian `uint16_t`.
-  - `0x018..0x019`: pump pre-run time in seconds as little-endian `uint16_t`.
-  - `0x01A..0x01B`: pump post-run time in seconds as little-endian `uint16_t`.
-  - `0x01C`: heater enabled flag, `0` disabled and nonzero enabled.
-  - `0x01D`: reserved byte.
-  - `0x01E`: CRC8 over bytes `0x000..0x01D`.
+  - `0x004..0x007`: compressor DHWT tank setpoint as XC16 `float`.
+  - `0x008..0x00B`: electric heater DHWT tank setpoint as XC16 `float`.
+  - `0x00C..0x00F`: superheat delta-T setpoint as XC16 `float`.
+  - `0x010..0x013`: compressor/tank hysteresis as XC16 `float`.
+  - `0x014..0x017`: electric heater hysteresis as XC16 `float`.
+  - `0x018..0x019`: EEV startup close steps as little-endian `uint16_t`.
+  - `0x01A..0x01B`: EEV maximum open steps as little-endian `uint16_t`.
+  - `0x01C..0x01D`: compressor anti-short-cycle time in seconds as little-endian `uint16_t`.
+  - `0x01E..0x01F`: LP startup bypass time in seconds as little-endian `uint16_t`.
+  - `0x020..0x021`: pump pre-run time in seconds as little-endian `uint16_t`.
+  - `0x022..0x023`: pump post-run time in seconds as little-endian `uint16_t`.
+  - `0x024`: heater enabled flag, `0` disabled and nonzero enabled.
+  - `0x025`: CRC8 over bytes `0x000..0x024`.
   - `0x1F0..0x1F3`: safe EEPROM test area exposed by `EEPROM24FC04_ADDR_TEST` / `EEPROM24FC04_TEST_LENGTH`.
 - Default settings:
-  - Water tank temperature: `55.0 C`.
+  - Compressor DHWT tank setpoint: `50.0 C`.
+  - Electric heater DHWT tank setpoint: `60.0 C`.
   - Superheat delta-T / target superheat: `3.0 C`.
-  - Tank hysteresis: `3.0 C`.
+  - Compressor/tank hysteresis: `3.0 C`.
+  - Electric heater hysteresis: `3.0 C`.
   - EEV startup close steps: `620`.
   - EEV maximum open steps: `560`.
   - Compressor anti-short-cycle time: `180` seconds.
   - LP startup bypass time: `60` seconds.
   - Pump pre-run time: `5` seconds.
   - Pump post-run time: `60` seconds.
-  - Heater enabled: disabled.
+  - Heater enabled: enabled.
 - Startup behavior:
   - `main.c` calls `EEPROM24FC04_Init()` once after `LCD_I2C_Init(0U)`, so I2C1 is already configured.
   - `main.c` calls `EEPROM24FC04_LoadSettings()` once during startup.
@@ -690,8 +703,10 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - `g_eeprom_write_count`
   - `g_eeprom_read_count`
   - `g_tank_temp_setpoint_c`
+  - `g_heater_temp_setpoint_c`
   - `g_superheat_delta_t_setpoint_c`
   - `g_tank_hysteresis_c`
+  - `g_heater_hysteresis_c`
   - `g_eev_startup_steps_setting`
   - `g_eev_max_steps_setting`
   - `g_compressor_anti_short_cycle_sec`
@@ -820,11 +835,13 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - `HP_STATE_RUNNING`
   - `HP_STATE_POST_RUN`
   - `HP_STATE_FAULT`
+  - `HP_STATE_HEATER_RUN`
 - `HeatPumpControl_Init()` is called once from `main.c` after EEPROM settings are loaded.
 - `HeatPumpControl_Task()` is called once from the main polling loop after sensor fault debug bits are updated.
 - `HP_ENABLE_COMPRESSOR_OUTPUT` controls whether compressor permission can energize the real compressor relay output on `RB13`; keep it `0` for safe bench logic testing and use `1` only for controlled relay/compressor testing.
 - `HP_ENABLE_FAN_OUTPUT` is set to `1` in Part 9, allowing the fan output on `RC2` to turn on after EEV preposition and remain on during post-run.
-- Part 9 keeps heater and 4 way valve safely off through the existing `Outputs_...` API.
+- Heater output on `RC1` may turn on only in `HP_STATE_HEATER_RUN` when `g_heater_enabled_setting != 0`.
+- Part 9 keeps 4 way valve safely off through the existing `Outputs_...` API.
 - Part 9 allows the pump output on `RC6` to turn on during pump pre-run, EEV preposition, compressor-start timing, running, and pump/fan post-run.
 - Part 9 moves the EEV to a startup preposition, turns the fan on in `HP_STATE_COMPRESSOR_START`, waits the compressor anti-short-cycle setting, then sets compressor permission and transitions to `HP_STATE_RUNNING`.
 - Part 9 adds slow closed-loop EEV superheat control from `SuCTS - EvpTS`; it does not add pressure-based refrigerant tables yet.
@@ -838,7 +855,10 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - `EEV_PREPOSITION` to `COMPRESSOR_START` after the EEV has moved to the startup open position.
   - `COMPRESSOR_START` to `RUNNING` after `g_compressor_anti_short_cycle_sec` expires.
   - `RUNNING` to `POST_RUN` when the heating request is satisfied.
-  - `POST_RUN` to `IDLE` after `g_pump_post_run_sec` expires.
+  - `POST_RUN` to `HEATER_RUN` after `g_pump_post_run_sec` expires if electric heater request is active.
+  - `POST_RUN` to `IDLE` after `g_pump_post_run_sec` expires if no electric heater request is active.
+  - `HEATER_RUN` to `IDLE` when TopDHWTS reaches `g_heater_temp_setpoint_c`.
+  - `HEATER_RUN` to `PRECHECK` if compressor-stage DHWT heating becomes required again.
   - Any state to `FAULT` when HP, LP, or Flow status is active.
   - `FAULT` back to `IDLE` when the active fault clears and the reset-only lockout is not active.
   - `FAULT` remains latched permanently when `g_hp_fault_lockout = 1`; MCU reset or power cycle is required to clear it.
@@ -856,7 +876,9 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 - `HP_STATE_COMPRESSOR_START` is a timed holding state in Part 9. It keeps pump on, turns fan on through `HP_ENABLE_FAN_OUTPUT = 1`, keeps heater/4 way valve off, and counts down `g_hp_anti_short_cycle_remaining_sec`.
 - When the anti-short-cycle countdown reaches zero, `g_hp_compressor_start_ready` becomes `1`, `g_hp_compressor_allowed` becomes `1`, and the state moves to `HP_STATE_RUNNING`. `HP_ENABLE_COMPRESSOR_OUTPUT` decides whether that permission energizes `RB13`.
 - `HP_STATE_RUNNING` keeps pump and fan on, keeps heater and 4 way valve off, keeps compressor permission active, observes the minimum compressor run timer, and runs slow EEV superheat control.
-- `HP_STATE_POST_RUN` turns compressor permission off first, keeps both pump and fan on for `g_pump_post_run_sec`, then turns pump/fan off and returns to `HP_STATE_IDLE`.
+- When `HP_STATE_RUNNING` satisfies the 50 C compressor-stage DHWT setpoint and the minimum run timer has expired, it turns compressor permission off, closes the EEV to 0%, keeps pump/fan on, and enters `HP_STATE_POST_RUN`.
+- `HP_STATE_POST_RUN` keeps both pump and fan on for `g_pump_post_run_sec`, then turns pump/fan off and either enters `HP_STATE_HEATER_RUN` or returns to `HP_STATE_IDLE`.
+- `HP_STATE_HEATER_RUN` keeps compressor, pump, fan, and 4 way valve off, keeps the EEV closed at 0%, and commands heater output on only while `g_hp_heater_request = 1` and `g_heater_enabled_setting != 0`.
 - Fan starts only after EEV preposition is complete. If fan bench testing is not wanted, set `HP_ENABLE_FAN_OUTPUT` to `0`.
 - Pump pre-run timing is non-blocking and uses `g_hp_state_elapsed_ms` and `g_hp_pump_pre_run_remaining_sec`.
 - Pump/fan post-run timing is non-blocking and uses `g_hp_state_elapsed_ms`, `g_pump_post_run_sec`, and `g_hp_pump_post_run_remaining_sec`.
@@ -911,9 +933,13 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - `g_topdhwts_temperature_c` / `g_topdhwts_adc_raw` for `TopDHWTS`.
   - `g_botdhwts_temperature_c` / `g_botdhwts_adc_raw` for `BotDHWTS`.
 - OST is still read as `g_ost_temperature_c` / `g_ost_adc_raw` and still reports sensor faults, but it does not change the DHWT tank setpoint.
-- DHWT tank setpoint is fixed from EEPROM-backed `g_tank_temp_setpoint_c`; the safe default is 50.0 C.
-- Heating start condition: set `g_hp_heating_request = 1` when `BotDHWTS <= g_tank_temp_setpoint_c - g_tank_hysteresis_c`.
-- Heating stop condition: keep request latched on until `TopDHWTS >= g_tank_temp_setpoint_c`, then set `g_hp_heating_request = 0`.
+- Compressor DHWT tank setpoint is fixed from EEPROM-backed `g_tank_temp_setpoint_c`; the safe default is 50.0 C.
+- Electric heater DHWT setpoint is EEPROM-backed `g_heater_temp_setpoint_c`; the safe default is 60.0 C.
+- Compressor-stage heating start condition: set `g_hp_heating_request = 1` when `BotDHWTS <= g_tank_temp_setpoint_c - g_tank_hysteresis_c` or `TopDHWTS < g_tank_temp_setpoint_c`.
+- Compressor-stage heating stop condition: keep request latched on until `TopDHWTS >= g_tank_temp_setpoint_c`, then set `g_hp_heating_request = 0`.
+- Electric heater start condition: set `g_hp_heater_request = 1` only when `g_heater_enabled_setting != 0`, compressor-stage request is clear, and `TopDHWTS <= g_heater_temp_setpoint_c - g_heater_hysteresis_c`.
+- Electric heater stop condition: keep heater request latched on until `TopDHWTS >= g_heater_temp_setpoint_c`, then set `g_hp_heater_request = 0`.
+- Compressor-stage request has priority over electric heater request whenever DHWT falls below the 50 C compressor stage.
 - If either TopDHWTS or BotDHWTS is invalid by existing open/short thresholds, set the related valid flag to `0`, force `g_hp_heating_request = 0`, and keep the state machine safely in `HP_STATE_IDLE`.
 - `HP_IGNORE_SENSOR_FAULTS_FOR_BENCH_TEST = 0` is the current real-test setting. Setting it to `1` may ignore sensor faults for bench FAULT blocking only; it must not fake valid tank temperatures.
 - Use EEPROM-backed settings globals for tank setpoint, tank hysteresis, pump pre-run time, pump post-run time, compressor anti-short-cycle time, and LP startup bypass time.

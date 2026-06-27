@@ -15,6 +15,7 @@ volatile uint16_t g_hp_previous_state = HP_STATE_IDLE;
 volatile uint16_t g_hp_active_fault = 0;
 volatile uint16_t g_hp_latched_fault = 0;
 volatile uint16_t g_hp_heating_request = 0;
+volatile uint16_t g_hp_heater_request = 0;
 volatile uint16_t g_hp_compressor_allowed = 0;
 volatile uint16_t g_hp_pump_command = 0;
 volatile uint16_t g_hp_fan_command = 0;
@@ -24,6 +25,10 @@ volatile uint16_t g_hp_eev_preposition_done = 0;
 volatile uint16_t g_hp_eev_target_steps = 0;
 volatile float g_hp_top_dhwt_temp_c = 0.0f;
 volatile float g_hp_bottom_dhwt_temp_c = 0.0f;
+volatile float g_hp_compressor_setpoint_c = 0.0f;
+volatile float g_hp_compressor_hysteresis_c = 0.0f;
+volatile float g_hp_heater_setpoint_c = 0.0f;
+volatile float g_hp_heater_hysteresis_c = 0.0f;
 volatile float g_hp_supply_hot_water_temp_c = 0.0f;
 volatile float g_hp_return_water_temp_c = 0.0f;
 volatile uint16_t g_hp_top_dhwt_valid = 0;
@@ -112,6 +117,7 @@ static bool HeatPumpControl_LPBypassIsActive(void);
 static bool HeatPumpControl_EEVMinimumOpeningIsSafe(void);
 static void HeatPumpControl_UpdateRunningEEVControl(void);
 static void HeatPumpControl_ResetRunningEEVControl(void);
+static void HeatPumpControl_CloseEEVForHeater(void);
 static void HeatPumpControl_ReadSettings(void);
 
 static uint32_t s_hp_eev_control_elapsed_ms = 0UL;
@@ -129,8 +135,13 @@ void HeatPumpControl_Init(void)
     g_hp_active_fault = 0U;
     g_hp_latched_fault = 0U;
     g_hp_heating_request = 0U;
+    g_hp_heater_request = 0U;
     g_hp_top_dhwt_temp_c = 0.0f;
     g_hp_bottom_dhwt_temp_c = 0.0f;
+    g_hp_compressor_setpoint_c = g_tank_temp_setpoint_c;
+    g_hp_compressor_hysteresis_c = g_tank_hysteresis_c;
+    g_hp_heater_setpoint_c = g_heater_temp_setpoint_c;
+    g_hp_heater_hysteresis_c = g_heater_hysteresis_c;
     g_hp_supply_hot_water_temp_c = 0.0f;
     g_hp_return_water_temp_c = 0.0f;
     g_hp_top_dhwt_valid = 0U;
@@ -183,6 +194,7 @@ void HeatPumpControl_Task(void)
         }
 
         HeatPumpControl_AllCommandsOff();
+        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_ApplyCommands();
         HeatPumpControl_SetState(HP_STATE_FAULT);
         return;
@@ -192,6 +204,7 @@ void HeatPumpControl_Task(void)
     {
         HeatPumpControl_RecordFault(g_hp_active_fault);
         HeatPumpControl_AllCommandsOff();
+        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_ApplyCommands();
         HeatPumpControl_SetState(HP_STATE_FAULT);
         return;
@@ -223,6 +236,10 @@ void HeatPumpControl_Task(void)
             if (g_hp_heating_request != 0U)
             {
                 HeatPumpControl_SetState(HP_STATE_PRECHECK);
+            }
+            else if (g_hp_heater_request != 0U)
+            {
+                HeatPumpControl_SetState(HP_STATE_HEATER_RUN);
             }
             break;
 
@@ -262,6 +279,7 @@ void HeatPumpControl_Task(void)
             if (g_hp_heating_request == 0U)
             {
                 HeatPumpControl_AllCommandsOff();
+                HeatPumpControl_CloseEEVForHeater();
                 HeatPumpControl_SetState(HP_STATE_IDLE);
             }
             else if (g_hp_state_elapsed_ms >= HeatPumpControl_PumpPreRunTargetMs())
@@ -299,6 +317,7 @@ void HeatPumpControl_Task(void)
             if (g_hp_heating_request == 0U)
             {
                 HeatPumpControl_AllCommandsOff();
+                HeatPumpControl_CloseEEVForHeater();
                 HeatPumpControl_SetState(HP_STATE_IDLE);
             }
             else if (g_hp_eev_preposition_done == 0U)
@@ -352,6 +371,7 @@ void HeatPumpControl_Task(void)
             if (g_hp_heating_request == 0U)
             {
                 HeatPumpControl_AllCommandsOff();
+                HeatPumpControl_CloseEEVForHeater();
                 g_hp_pump_command = 1U;
                 g_hp_fan_command = 1U;
                 HeatPumpControl_SetState(HP_STATE_POST_RUN);
@@ -384,6 +404,7 @@ void HeatPumpControl_Task(void)
                 (g_hp_min_run_remaining_sec == 0U))
             {
                 HeatPumpControl_AllCommandsOff();
+                HeatPumpControl_CloseEEVForHeater();
                 g_hp_pump_command = 1U;
                 g_hp_fan_command = 1U;
                 HeatPumpControl_ResetRunningEEVControl();
@@ -407,6 +428,40 @@ void HeatPumpControl_Task(void)
             {
                 g_hp_pump_post_run_remaining_sec = 0U;
                 HeatPumpControl_AllCommandsOff();
+                HeatPumpControl_CloseEEVForHeater();
+
+                if (g_hp_heater_request != 0U)
+                {
+                    HeatPumpControl_SetState(HP_STATE_HEATER_RUN);
+                }
+                else
+                {
+                    HeatPumpControl_SetState(HP_STATE_IDLE);
+                }
+            }
+            break;
+
+        case HP_STATE_HEATER_RUN:
+            HeatPumpControl_AllCommandsOff();
+            HeatPumpControl_CloseEEVForHeater();
+            g_hp_flow_proving_active = 0U;
+            g_hp_flow_proven = 0U;
+            g_hp_compressor_start_ready = 0U;
+            g_hp_lp_bypass_remaining_sec = 0U;
+            g_hp_min_run_remaining_sec = 0U;
+            HeatPumpControl_ResetRunningEEVControl();
+
+            if (g_hp_heating_request != 0U)
+            {
+                HeatPumpControl_SetState(HP_STATE_PRECHECK);
+            }
+            else if (g_hp_heater_request != 0U)
+            {
+                g_hp_heater_command =
+                    (g_heater_enabled_setting != 0U) ? 1U : 0U;
+            }
+            else
+            {
                 HeatPumpControl_SetState(HP_STATE_IDLE);
             }
             break;
@@ -490,6 +545,7 @@ static uint16_t HeatPumpControl_ReadFaults(void)
             case HP_STATE_PRECHECK:
             case HP_STATE_PUMP_PRE_RUN:
             case HP_STATE_FAULT:
+            case HP_STATE_HEATER_RUN:
                 break;
 
             default:
@@ -683,17 +739,28 @@ static void HeatPumpControl_UpdateHeatingRequest(void)
 {
     float start_temperature_c;
     float stop_temperature_c;
+    float heater_start_temperature_c;
+    float heater_stop_temperature_c;
 
     HeatPumpControl_UpdateTankTemperatures();
+
+    g_hp_compressor_setpoint_c = g_tank_temp_setpoint_c;
+    g_hp_compressor_hysteresis_c = g_tank_hysteresis_c;
+    g_hp_heater_setpoint_c = g_heater_temp_setpoint_c;
+    g_hp_heater_hysteresis_c = g_heater_hysteresis_c;
 
     if (HeatPumpControl_TankSensorsAreValid() == false)
     {
         g_hp_heating_request = 0U;
+        g_hp_heater_request = 0U;
         return;
     }
 
-    stop_temperature_c = g_tank_temp_setpoint_c;
-    start_temperature_c = stop_temperature_c - g_tank_hysteresis_c;
+    stop_temperature_c = g_hp_compressor_setpoint_c;
+    start_temperature_c = stop_temperature_c - g_hp_compressor_hysteresis_c;
+    heater_stop_temperature_c = g_hp_heater_setpoint_c;
+    heater_start_temperature_c =
+        heater_stop_temperature_c - g_hp_heater_hysteresis_c;
 
     if (g_hp_heating_request != 0U)
     {
@@ -702,9 +769,30 @@ static void HeatPumpControl_UpdateHeatingRequest(void)
             g_hp_heating_request = 0U;
         }
     }
-    else if (g_hp_bottom_dhwt_temp_c <= start_temperature_c)
+    else if ((g_hp_bottom_dhwt_temp_c <= start_temperature_c) ||
+             (g_hp_top_dhwt_temp_c < stop_temperature_c))
     {
         g_hp_heating_request = 1U;
+    }
+
+    if (g_heater_enabled_setting == 0U)
+    {
+        g_hp_heater_request = 0U;
+        return;
+    }
+
+    if (g_hp_heater_request != 0U)
+    {
+        if ((g_hp_top_dhwt_temp_c >= heater_stop_temperature_c) ||
+            (g_hp_heating_request != 0U))
+        {
+            g_hp_heater_request = 0U;
+        }
+    }
+    else if ((g_hp_heating_request == 0U) &&
+             (g_hp_top_dhwt_temp_c <= heater_start_temperature_c))
+    {
+        g_hp_heater_request = 1U;
     }
 }
 
@@ -962,6 +1050,18 @@ static void HeatPumpControl_ResetRunningEEVControl(void)
     g_hp_eev_control_min_limit_active = 0U;
 }
 
+static void HeatPumpControl_CloseEEVForHeater(void)
+{
+    if (g_eev_init_done == 0U)
+    {
+        return;
+    }
+
+    EEV_MoveToPercent(0U);
+    g_hp_eev_target_percent = 0U;
+    g_hp_eev_target_steps = 0U;
+}
+
 static void HeatPumpControl_ReadSettings(void)
 {
     /*
@@ -970,6 +1070,9 @@ static void HeatPumpControl_ReadSettings(void)
     */
     (void)g_tank_temp_setpoint_c;
     (void)g_tank_hysteresis_c;
+    (void)g_heater_temp_setpoint_c;
+    (void)g_heater_hysteresis_c;
+    (void)g_heater_enabled_setting;
     (void)g_pump_pre_run_sec;
     (void)g_pump_post_run_sec;
     (void)g_compressor_anti_short_cycle_sec;

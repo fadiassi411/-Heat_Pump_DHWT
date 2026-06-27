@@ -17,20 +17,22 @@
     A0/A1/A2 package pins are not used for 24FC04 addressing.
 */
 #define EEPROM24FC04_ADDR_SETPOINTS          0x000U
-#define EEPROM24FC04_SETPOINTS_LENGTH        31U
+#define EEPROM24FC04_SETPOINTS_LENGTH        38U
 #define EEPROM24FC04_ADDR_TEST               0x1F0U
 #define EEPROM24FC04_TEST_LENGTH             4U
 
 #define EEPROM24FC04_TANK_TEMP_DEFAULT_C     50.0f
+#define EEPROM24FC04_HEATER_TEMP_DEFAULT_C   60.0f
 #define EEPROM24FC04_SUPERHEAT_DT_DEFAULT_C  3.0f
 #define EEPROM24FC04_TANK_HYST_DEFAULT_C     TANK_HYSTERESIS_DEFAULT_C
+#define EEPROM24FC04_HEATER_HYST_DEFAULT_C   3.0f
 #define EEPROM24FC04_EEV_STARTUP_DEFAULT     EEV_STARTUP_CLOSE_STEPS
 #define EEPROM24FC04_EEV_MAX_DEFAULT         EEV_MAX_POSITION_STEPS
 #define EEPROM24FC04_COMP_ASC_DEFAULT_SEC    COMPRESSOR_ANTI_SHORT_CYCLE_SEC
 #define EEPROM24FC04_LP_BYPASS_DEFAULT_SEC   LP_STARTUP_BYPASS_SEC
 #define EEPROM24FC04_PUMP_PRE_DEFAULT_SEC    PUMP_PRE_RUN_SEC
 #define EEPROM24FC04_PUMP_POST_DEFAULT_SEC   PUMP_POST_RUN_SEC
-#define EEPROM24FC04_HEATER_DEFAULT_ENABLED  HEATER_ENABLED_DEFAULT
+#define EEPROM24FC04_HEATER_DEFAULT_ENABLED  true
 
 #define EEPROM24FC04_ERROR_NONE              0U
 #define EEPROM24FC04_ERROR_NO_ACK            1U
@@ -43,8 +45,10 @@
 typedef struct
 {
     float tank_temp_setpoint_c;
+    float heater_temp_setpoint_c;
     float superheat_delta_t_setpoint_c;
     float tank_hysteresis_c;
+    float heater_hysteresis_c;
     uint16_t eev_startup_steps;
     uint16_t eev_max_steps;
     uint16_t compressor_anti_short_cycle_sec;
@@ -61,8 +65,10 @@ extern volatile uint16_t g_eeprom_last_data;
 extern volatile uint16_t g_eeprom_write_count;
 extern volatile uint16_t g_eeprom_read_count;
 extern volatile float g_tank_temp_setpoint_c;
+extern volatile float g_heater_temp_setpoint_c;
 extern volatile float g_superheat_delta_t_setpoint_c;
 extern volatile float g_tank_hysteresis_c;
+extern volatile float g_heater_hysteresis_c;
 extern volatile uint16_t g_eev_startup_steps_setting;
 extern volatile uint16_t g_eev_max_steps_setting;
 extern volatile uint16_t g_compressor_anti_short_cycle_sec;

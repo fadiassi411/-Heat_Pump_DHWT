@@ -12,7 +12,8 @@ typedef enum
     HP_STATE_COMPRESSOR_START = 4U,
     HP_STATE_RUNNING = 5U,
     HP_STATE_POST_RUN = 6U,
-    HP_STATE_FAULT = 7U
+    HP_STATE_FAULT = 7U,
+    HP_STATE_HEATER_RUN = 8U
 } HeatPumpControl_State;
 
 #define HP_CONTROL_FAULT_HIGH_TEMP_MASK       0x0010U
@@ -25,6 +26,7 @@ extern volatile uint16_t g_hp_previous_state;
 extern volatile uint16_t g_hp_active_fault;
 extern volatile uint16_t g_hp_latched_fault;
 extern volatile uint16_t g_hp_heating_request;
+extern volatile uint16_t g_hp_heater_request;
 extern volatile uint16_t g_hp_compressor_allowed;
 extern volatile uint16_t g_hp_pump_command;
 extern volatile uint16_t g_hp_fan_command;
@@ -34,6 +36,10 @@ extern volatile uint16_t g_hp_eev_preposition_done;
 extern volatile uint16_t g_hp_eev_target_steps;
 extern volatile float g_hp_top_dhwt_temp_c;
 extern volatile float g_hp_bottom_dhwt_temp_c;
+extern volatile float g_hp_compressor_setpoint_c;
+extern volatile float g_hp_compressor_hysteresis_c;
+extern volatile float g_hp_heater_setpoint_c;
+extern volatile float g_hp_heater_hysteresis_c;
 extern volatile float g_hp_supply_hot_water_temp_c;
 extern volatile float g_hp_return_water_temp_c;
 extern volatile uint16_t g_hp_top_dhwt_valid;
