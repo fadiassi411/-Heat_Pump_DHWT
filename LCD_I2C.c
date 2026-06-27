@@ -27,7 +27,7 @@
 
 #define LCD_I2C_FSCL_HZ             100000UL
 #define LCD_I2C_TIMEOUT_COUNTS      10000UL
-#define LCD_I2C_PAGE_HOLD_UPDATES   2U
+#define LCD_I2C_PAGE_HOLD_UPDATES   6U
 #define LCD_I2C_PAGE_COUNT          4U
 
 #define LCD_I2C_RS                  0x01U

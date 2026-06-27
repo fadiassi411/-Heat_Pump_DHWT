@@ -68,7 +68,7 @@ MPLAB project metadata lists these project files:
   - Scans LCD I2C address `0x27` first, then `0x3F`, and uses timeouts so missing LCD hardware does not hang firmware.
   - Displays only the current requested service pages: SuCTS/EvpTS, TopDHWTS/BotDHWTS, EEV opening percent/DHWT setpoint, and Superheat/target superheat.
   - If a heat-pump HP, LP, or Flow fault is active or latched, the LCD stops rolling pages and shows `HP Fault`, `LP Fault`, or `FS Fault`.
-  - Holds each LCD page for about 1 second using two 500 ms main-loop update passes.
+  - Holds each LCD page for about 3 seconds using six 500 ms main-loop update passes.
 
 - `LCD_I2C.h`
   - Public header for the LCD driver.
@@ -316,7 +316,7 @@ Rules:
 - I2C LCD display
   - Uses I2C1 at 100 kHz through a PCF8574 backpack.
   - Default address scan order is `0x27`, then `0x3F`.
-  - Display pages roll about once per second: SuCTS/EvpTS, TopDHWTS/BotDHWTS, EEV opening percent/fixed EEPROM DHWT setpoint, and Superheat/target superheat.
+  - Display pages roll about once every 3 seconds: SuCTS/EvpTS, TopDHWTS/BotDHWTS, EEV opening percent/fixed EEPROM DHWT setpoint, and Superheat/target superheat.
   - HP/LP/Flow, heat-pump software safety faults, and blocking sensor faults override the rolling pages and show the matching fault message until the active/latched fault clears.
   - Sensor fault LCD display reads `g_sensor_fault_inputs` and identifies the first active NTC sensor fault by priority: SHWTS, EvpTS, RHWTS, TopDHWTS, BotDHWTS, then OST.
   - LCD routines have I2C timeouts and return without hanging if no backpack is detected.
@@ -726,7 +726,7 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - Fault display priority is HP first, LP second, Flow third, then software safety faults.
   - Fault messages are `HP Fault`, `LP Fault`, `FS Fault`, `HIGH TEMP Fault`, `FREEZE Fault`, `TANK TEMP Fault`, `EEV MIN Fault`, and sensor-specific fallback messages.
   - Sensor fault display uses row 0 `SENSOR Fault` and row 1 with the failed sensor name: `SHWTS Fault`, `EvpTS Fault`, `RHWTS Fault`, `TopDHWTS Fault`, `BotDHWTS Fault`, or `OST Fault`.
-- Page timing: each page is held for about 1 second by holding two 500 ms main-loop refresh passes.
+- Page timing: each page is held for about 3 seconds by holding six 500 ms main-loop refresh passes.
 - The LCD page refresh does not call full clear each cycle; it rewrites line content and pads with spaces to reduce flicker.
 
 ## Coding Style Used In This Project
