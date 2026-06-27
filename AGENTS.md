@@ -81,6 +81,7 @@ MPLAB project metadata lists these project files:
   - Uses 24FC04 block-select addressing: 0x000..0x0FF use B0 = 0, 0x100..0x1FF use B0 = 1, then only the lower 8-bit word address is sent.
   - Splits writes on 16-byte page boundaries, ACK-polls after writes, and uses timeouts to avoid hangs when EEPROM hardware is missing.
   - Stores control settings with magic/version/CRC8 validation: tank temperature, superheat delta-T, tank hysteresis, EEV startup/max steps, compressor and pump timing, LP bypass time, and heater enable.
+  - Current settings record version is `3`; this invalidates older EEPROM records and writes safe defaults, including the fixed 50.0 C DHWT tank setpoint.
 
 - `eeprom_24fc04.h`
   - Public header for the EEPROM driver.
@@ -126,9 +127,8 @@ MPLAB project metadata lists these project files:
   - When `HP_IGNORE_SENSOR_FAULTS_FOR_BENCH_TEST` is `0`, NTC sensor faults are included in `g_hp_active_fault` and block the control state machine.
   - Uses `TopDHWTS` and `BotDHWTS` as the real DHWT tank demand sensors.
   - Starts heating from bottom tank temperature and stops heating from top tank temperature.
-  - Uses `OST` as an outdoor-temperature compensator for the effective DHWT tank setpoint.
-  - OST compensation maps `OST <= 5 C` to a 70 C DHWT setpoint and `OST >= 20 C` to a 50 C DHWT setpoint, with linear interpolation between 5 C and 20 C.
-  - If OST is invalid, the effective setpoint falls back to the EEPROM-backed `g_tank_temp_setpoint_c`; the code does not fake an outdoor temperature.
+  - Uses the EEPROM-backed fixed DHWT tank setpoint `g_tank_temp_setpoint_c` directly; default is 50.0 C.
+  - OST remains available as a sensor/fault input, but it is not used to compensate or change the DHWT tank setpoint.
   - Invalid TopDHWTS or BotDHWTS keeps heating request off and the state machine safely in `HP_STATE_IDLE`.
 
 - `heatpump_control.h`
@@ -316,7 +316,7 @@ Rules:
 - I2C LCD display
   - Uses I2C1 at 100 kHz through a PCF8574 backpack.
   - Default address scan order is `0x27`, then `0x3F`.
-  - Display pages roll about once per second: SuCTS/EvpTS, TopDHWTS/BotDHWTS, and EEV opening percent/effective compensated DHWT setpoint.
+  - Display pages roll about once per second: SuCTS/EvpTS, TopDHWTS/BotDHWTS, and EEV opening percent/fixed EEPROM DHWT setpoint.
   - HP/LP/Flow, heat-pump software safety faults, and blocking sensor faults override the rolling pages and show the matching fault message until the active/latched fault clears.
   - Sensor fault LCD display reads `g_sensor_fault_inputs` and identifies the first active NTC sensor fault by priority: SHWTS, EvpTS, RHWTS, TopDHWTS, BotDHWTS, then OST.
   - LCD routines have I2C timeouts and return without hanging if no backpack is detected.
@@ -334,7 +334,7 @@ Runtime/debug outputs are exposed as volatile globals for MPLAB watch/debugging:
 - LCD status: `g_lcd_i2c_state`, `g_lcd_i2c_error`, `g_lcd_i2c_updates`, `g_lcd_i2c_address`, `g_lcd_i2c_detected`
 - EEPROM status: `g_eeprom_present`, `g_eeprom_error`, `g_eeprom_last_addr`, `g_eeprom_last_data`, `g_eeprom_write_count`, `g_eeprom_read_count`
 - Settings: `g_tank_temp_setpoint_c`, `g_superheat_delta_t_setpoint_c`, `g_tank_hysteresis_c`, `g_eev_startup_steps_setting`, `g_eev_max_steps_setting`, `g_compressor_anti_short_cycle_sec`, `g_lp_startup_bypass_sec`, `g_pump_pre_run_sec`, `g_pump_post_run_sec`, `g_heater_enabled_setting`
-- Heat pump control status: `g_hp_state`, `g_hp_previous_state`, `g_hp_active_fault`, `g_hp_latched_fault`, `g_hp_heating_request`, `g_hp_compressor_allowed`, `g_hp_pump_command`, `g_hp_fan_command`, `g_hp_heater_command`, `g_hp_eev_target_percent`, `g_hp_eev_preposition_done`, `g_hp_eev_target_steps`, `g_hp_top_dhwt_temp_c`, `g_hp_bottom_dhwt_temp_c`, `g_hp_ost_temp_c`, `g_hp_dhwt_compensated_setpoint_c`, `g_hp_supply_hot_water_temp_c`, `g_hp_return_water_temp_c`, `g_hp_top_dhwt_valid`, `g_hp_bottom_dhwt_valid`, `g_hp_ost_valid`, `g_hp_supply_hot_water_valid`, `g_hp_return_water_valid`, `g_hp_safety_fault`, `g_hp_state_elapsed_ms`, `g_hp_pump_pre_run_remaining_sec`, `g_hp_pump_post_run_remaining_sec`, `g_hp_anti_short_cycle_remaining_sec`, `g_hp_compressor_min_off_remaining_sec`, `g_hp_min_run_remaining_sec`, `g_hp_lp_bypass_remaining_sec`, `g_hp_compressor_start_ready`, `g_hp_flow_proving_active`, `g_hp_flow_proven`, `g_hp_fault_retry_count`, `g_hp_fault_retry_limit`, `g_hp_fault_retry_pending`, `g_hp_fault_lockout`, `g_hp_last_fault`, `g_hp_suction_temp_c`, `g_hp_evap_temp_c`, `g_hp_superheat_delta_t_c`, `g_hp_superheat_target_c`, `g_hp_suction_temp_valid`, `g_hp_evap_temp_valid`, `g_hp_eev_control_enabled`, `g_hp_eev_control_remaining_sec`, `g_hp_eev_last_step_command`, `g_hp_eev_control_max_percent`, `g_hp_eev_control_max_steps`, `g_hp_eev_control_limit_active`, `g_hp_eev_control_min_percent`, `g_hp_eev_control_min_steps`, `g_hp_eev_control_min_limit_active`
+- Heat pump control status: `g_hp_state`, `g_hp_previous_state`, `g_hp_active_fault`, `g_hp_latched_fault`, `g_hp_heating_request`, `g_hp_compressor_allowed`, `g_hp_pump_command`, `g_hp_fan_command`, `g_hp_heater_command`, `g_hp_eev_target_percent`, `g_hp_eev_preposition_done`, `g_hp_eev_target_steps`, `g_hp_top_dhwt_temp_c`, `g_hp_bottom_dhwt_temp_c`, `g_hp_supply_hot_water_temp_c`, `g_hp_return_water_temp_c`, `g_hp_top_dhwt_valid`, `g_hp_bottom_dhwt_valid`, `g_hp_supply_hot_water_valid`, `g_hp_return_water_valid`, `g_hp_safety_fault`, `g_hp_state_elapsed_ms`, `g_hp_pump_pre_run_remaining_sec`, `g_hp_pump_post_run_remaining_sec`, `g_hp_anti_short_cycle_remaining_sec`, `g_hp_compressor_min_off_remaining_sec`, `g_hp_min_run_remaining_sec`, `g_hp_lp_bypass_remaining_sec`, `g_hp_compressor_start_ready`, `g_hp_flow_proving_active`, `g_hp_flow_proven`, `g_hp_fault_retry_count`, `g_hp_fault_retry_limit`, `g_hp_fault_retry_pending`, `g_hp_fault_lockout`, `g_hp_last_fault`, `g_hp_suction_temp_c`, `g_hp_evap_temp_c`, `g_hp_superheat_delta_t_c`, `g_hp_superheat_target_c`, `g_hp_suction_temp_valid`, `g_hp_evap_temp_valid`, `g_hp_eev_control_enabled`, `g_hp_eev_control_remaining_sec`, `g_hp_eev_last_step_command`, `g_hp_eev_control_max_percent`, `g_hp_eev_control_max_steps`, `g_hp_eev_control_limit_active`, `g_hp_eev_control_min_percent`, `g_hp_eev_control_min_steps`, `g_hp_eev_control_min_limit_active`
 - ADC read counters: `g_shwts_adc_read_counter`, `g_evpts_adc_read_counter`, `g_rhwts_adc_read_counter`, `g_topdhwts_adc_read_counter`, `g_botdhwts_adc_read_counter`, `g_ost_adc_read_counter`
 
 ### Fault Configuration
@@ -536,8 +536,8 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 
 - `g_hp_heating_request`
   - Latched DHWT heating request.
-  - Set to `1` when `g_hp_bottom_dhwt_temp_c <= (g_hp_dhwt_compensated_setpoint_c - g_tank_hysteresis_c)`.
-  - Held at `1` until `g_hp_top_dhwt_temp_c >= g_hp_dhwt_compensated_setpoint_c`.
+  - Set to `1` when `g_hp_bottom_dhwt_temp_c <= (g_tank_temp_setpoint_c - g_tank_hysteresis_c)`.
+  - Held at `1` until `g_hp_top_dhwt_temp_c >= g_tank_temp_setpoint_c`.
   - Forced to `0` if TopDHWTS or BotDHWTS is invalid.
 
 - `g_hp_top_dhwt_temp_c`
@@ -572,20 +572,6 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - `HP_CONTROL_FAULT_FREEZE_MASK`: EvpTS is 2 C or lower during compressor-start/running.
   - `HP_CONTROL_FAULT_TANK_OVERTEMP_MASK`: TopDHWTS or BotDHWTS is 75 C or higher.
   - `HP_CONTROL_FAULT_EEV_MIN_OPEN_MASK`: EEV is below the 10% running minimum while the compressor is running.
-
-- `g_hp_ost_temp_c`
-  - Copy of `g_ost_temperature_c`, the outdoor sensor temperature used for DHWT setpoint compensation.
-
-- `g_hp_dhwt_compensated_setpoint_c`
-  - Effective DHWT stop setpoint used by heat-pump control.
-  - `70 C` when OST is 5 C or colder.
-  - `50 C` when OST is 20 C or warmer.
-  - Linearly interpolated between 5 C and 20 C.
-  - Falls back to `g_tank_temp_setpoint_c` if OST is invalid.
-
-- `g_hp_ost_valid`
-  - `1`: OST raw ADC is not open/short by the existing fault thresholds.
-  - `0`: OST is invalid; compensation falls back to the EEPROM tank setpoint.
 
 - `g_hp_compressor_allowed`
   - Part 5 may set this to `1` for state-machine/debug permission after the anti-short-cycle countdown, but the real compressor relay remains off while `HP_ENABLE_COMPRESSOR_OUTPUT = 0`.
@@ -733,7 +719,7 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 - Page order:
   - Page 0: SuCTS/Suction temperature on row 0, EvpTS/Evaporator temperature on row 1.
   - Page 1: TopDHWTS/DHWT top temperature on row 0, BotDHWTS/DHWT bottom temperature on row 1.
-  - Page 2: EEV opening percentage on row 0, effective compensated DHWT tank setpoint on row 1.
+  - Page 2: EEV opening percentage on row 0, fixed EEPROM DHWT tank setpoint on row 1.
 - Fault override:
   - If `g_hp_active_fault` or `g_hp_latched_fault` contains HP, LP, Flow, or heat-pump software safety fault bits, the LCD stops rolling pages.
   - Fault display priority is HP first, LP second, Flow third, then software safety faults.
@@ -923,14 +909,10 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 - DHWT demand uses existing NTC globals from `ntc_loops.c/.h`:
   - `g_topdhwts_temperature_c` / `g_topdhwts_adc_raw` for `TopDHWTS`.
   - `g_botdhwts_temperature_c` / `g_botdhwts_adc_raw` for `BotDHWTS`.
-- OST setpoint compensation uses `g_ost_temperature_c` / `g_ost_adc_raw` for `OST`.
-- Compensated DHWT setpoint:
-  - `70 C` when `OST <= 5 C`.
-  - `50 C` when `OST >= 20 C`.
-  - Linear interpolation between 5 C and 20 C.
-  - Fall back to `g_tank_temp_setpoint_c` if OST is invalid.
-- Heating start condition: set `g_hp_heating_request = 1` when `BotDHWTS <= g_hp_dhwt_compensated_setpoint_c - g_tank_hysteresis_c`.
-- Heating stop condition: keep request latched on until `TopDHWTS >= g_hp_dhwt_compensated_setpoint_c`, then set `g_hp_heating_request = 0`.
+- OST is still read as `g_ost_temperature_c` / `g_ost_adc_raw` and still reports sensor faults, but it does not change the DHWT tank setpoint.
+- DHWT tank setpoint is fixed from EEPROM-backed `g_tank_temp_setpoint_c`; the safe default is 50.0 C.
+- Heating start condition: set `g_hp_heating_request = 1` when `BotDHWTS <= g_tank_temp_setpoint_c - g_tank_hysteresis_c`.
+- Heating stop condition: keep request latched on until `TopDHWTS >= g_tank_temp_setpoint_c`, then set `g_hp_heating_request = 0`.
 - If either TopDHWTS or BotDHWTS is invalid by existing open/short thresholds, set the related valid flag to `0`, force `g_hp_heating_request = 0`, and keep the state machine safely in `HP_STATE_IDLE`.
 - `HP_IGNORE_SENSOR_FAULTS_FOR_BENCH_TEST = 0` is the current real-test setting. Setting it to `1` may ignore sensor faults for bench FAULT blocking only; it must not fake valid tank temperatures.
 - Use EEPROM-backed settings globals for tank setpoint, tank hysteresis, pump pre-run time, pump post-run time, compressor anti-short-cycle time, and LP startup bypass time.

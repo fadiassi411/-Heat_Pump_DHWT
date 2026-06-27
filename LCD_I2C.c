@@ -291,7 +291,7 @@ void LCD_I2C_ShowNTCTemperatures(void)
         LCD_I2C_PrintSpaces(4U);
         LCD_I2C_SetCursor(1U, 0U);
         LCD_I2C_PrintFixedWidth("DHW Set", 8U);
-        LCD_I2C_PrintSetpointValue(g_hp_dhwt_compensated_setpoint_c);
+        LCD_I2C_PrintSetpointValue(g_tank_temp_setpoint_c);
         LCD_I2C_WriteChar('C');
         LCD_I2C_PrintSpaces(1U);
     }

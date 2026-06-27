@@ -16,7 +16,7 @@
 #define EEPROM24FC04_WRITE_CYCLE_DELAY_MS    1U
 #define EEPROM24FC04_CONTROL_BASE_7BIT       0x50U
 #define EEPROM24FC04_MAGIC                   0x4553U
-#define EEPROM24FC04_VERSION                 2U
+#define EEPROM24FC04_VERSION                 3U
 
 #define SETPOINTS_MAGIC_L_OFFSET             0U
 #define SETPOINTS_MAGIC_H_OFFSET             1U

@@ -24,13 +24,10 @@ volatile uint16_t g_hp_eev_preposition_done = 0;
 volatile uint16_t g_hp_eev_target_steps = 0;
 volatile float g_hp_top_dhwt_temp_c = 0.0f;
 volatile float g_hp_bottom_dhwt_temp_c = 0.0f;
-volatile float g_hp_ost_temp_c = 0.0f;
-volatile float g_hp_dhwt_compensated_setpoint_c = 0.0f;
 volatile float g_hp_supply_hot_water_temp_c = 0.0f;
 volatile float g_hp_return_water_temp_c = 0.0f;
 volatile uint16_t g_hp_top_dhwt_valid = 0;
 volatile uint16_t g_hp_bottom_dhwt_valid = 0;
-volatile uint16_t g_hp_ost_valid = 0;
 volatile uint16_t g_hp_supply_hot_water_valid = 0;
 volatile uint16_t g_hp_return_water_valid = 0;
 volatile uint16_t g_hp_safety_fault = 0;
@@ -84,10 +81,6 @@ volatile uint16_t g_hp_eev_control_min_limit_active = 0;
 #define HP_SUPERHEAT_DEADBAND_C                    0.5f
 #define HP_EEV_CONTROL_MAX_PERCENT                 40U
 #define HP_EEV_CONTROL_MIN_PERCENT                 10U
-#define HP_DHWT_COMP_OST_LOW_C                     5.0f
-#define HP_DHWT_COMP_OST_HIGH_C                    20.0f
-#define HP_DHWT_COMP_SETPOINT_AT_LOW_OST_C         70.0f
-#define HP_DHWT_COMP_SETPOINT_AT_HIGH_OST_C        50.0f
 #define HP_HIGH_WATER_TEMP_STOP_C                  75.0f
 #define HP_EVAP_FREEZE_STOP_C                      2.0f
 #define HP_TANK_OVERTEMP_STOP_C                    75.0f
@@ -106,7 +99,6 @@ static uint16_t HeatPumpControl_EEVControlMaxSteps(void);
 static uint16_t HeatPumpControl_EEVControlMinSteps(void);
 static void HeatPumpControl_UpdateHeatingRequest(void);
 static void HeatPumpControl_UpdateTankTemperatures(void);
-static float HeatPumpControl_CalculateCompensatedSetpoint(void);
 static bool HeatPumpControl_TankSensorsAreValid(void);
 static void HeatPumpControl_UpdateElapsedTime(void);
 static void HeatPumpControl_UpdateCompressorOffTimer(void);
@@ -139,13 +131,10 @@ void HeatPumpControl_Init(void)
     g_hp_heating_request = 0U;
     g_hp_top_dhwt_temp_c = 0.0f;
     g_hp_bottom_dhwt_temp_c = 0.0f;
-    g_hp_ost_temp_c = 0.0f;
-    g_hp_dhwt_compensated_setpoint_c = g_tank_temp_setpoint_c;
     g_hp_supply_hot_water_temp_c = 0.0f;
     g_hp_return_water_temp_c = 0.0f;
     g_hp_top_dhwt_valid = 0U;
     g_hp_bottom_dhwt_valid = 0U;
-    g_hp_ost_valid = 0U;
     g_hp_supply_hot_water_valid = 0U;
     g_hp_return_water_valid = 0U;
     g_hp_safety_fault = 0U;
@@ -696,8 +685,6 @@ static void HeatPumpControl_UpdateHeatingRequest(void)
     float stop_temperature_c;
 
     HeatPumpControl_UpdateTankTemperatures();
-    g_hp_dhwt_compensated_setpoint_c =
-        HeatPumpControl_CalculateCompensatedSetpoint();
 
     if (HeatPumpControl_TankSensorsAreValid() == false)
     {
@@ -705,7 +692,7 @@ static void HeatPumpControl_UpdateHeatingRequest(void)
         return;
     }
 
-    stop_temperature_c = g_hp_dhwt_compensated_setpoint_c;
+    stop_temperature_c = g_tank_temp_setpoint_c;
     start_temperature_c = stop_temperature_c - g_tank_hysteresis_c;
 
     if (g_hp_heating_request != 0U)
@@ -730,51 +717,11 @@ static void HeatPumpControl_UpdateTankTemperatures(void)
     */
     g_hp_top_dhwt_temp_c = g_topdhwts_temperature_c;
     g_hp_bottom_dhwt_temp_c = g_botdhwts_temperature_c;
-    g_hp_ost_temp_c = g_ost_temperature_c;
 
     g_hp_top_dhwt_valid =
         (FaultInputs_IsSensorOpenOrShort(g_topdhwts_adc_raw) == false) ? 1U : 0U;
     g_hp_bottom_dhwt_valid =
         (FaultInputs_IsSensorOpenOrShort(g_botdhwts_adc_raw) == false) ? 1U : 0U;
-    g_hp_ost_valid =
-        (FaultInputs_IsSensorOpenOrShort(g_ost_adc_raw) == false) ? 1U : 0U;
-}
-
-static float HeatPumpControl_CalculateCompensatedSetpoint(void)
-{
-    float ost_span_c;
-    float setpoint_span_c;
-    float ratio;
-
-    /*
-        Outdoor temperature compensation:
-        OST <= 5 C  -> DHWT setpoint 70 C.
-        OST >= 20 C -> DHWT setpoint 50 C.
-        Between 5 C and 20 C the setpoint is linearly interpolated.
-
-        If the OST sensor is invalid, keep using the EEPROM tank setpoint.
-    */
-    if (g_hp_ost_valid == 0U)
-    {
-        return g_tank_temp_setpoint_c;
-    }
-
-    if (g_hp_ost_temp_c <= HP_DHWT_COMP_OST_LOW_C)
-    {
-        return HP_DHWT_COMP_SETPOINT_AT_LOW_OST_C;
-    }
-
-    if (g_hp_ost_temp_c >= HP_DHWT_COMP_OST_HIGH_C)
-    {
-        return HP_DHWT_COMP_SETPOINT_AT_HIGH_OST_C;
-    }
-
-    ost_span_c = HP_DHWT_COMP_OST_HIGH_C - HP_DHWT_COMP_OST_LOW_C;
-    setpoint_span_c = HP_DHWT_COMP_SETPOINT_AT_LOW_OST_C -
-                      HP_DHWT_COMP_SETPOINT_AT_HIGH_OST_C;
-    ratio = (g_hp_ost_temp_c - HP_DHWT_COMP_OST_LOW_C) / ost_span_c;
-
-    return HP_DHWT_COMP_SETPOINT_AT_LOW_OST_C - (ratio * setpoint_span_c);
 }
 
 static bool HeatPumpControl_TankSensorsAreValid(void)
