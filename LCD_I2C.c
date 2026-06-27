@@ -28,7 +28,7 @@
 #define LCD_I2C_FSCL_HZ             100000UL
 #define LCD_I2C_TIMEOUT_COUNTS      10000UL
 #define LCD_I2C_PAGE_HOLD_UPDATES   2U
-#define LCD_I2C_PAGE_COUNT          3U
+#define LCD_I2C_PAGE_COUNT          4U
 
 #define LCD_I2C_RS                  0x01U
 #define LCD_I2C_RW                  0x02U
@@ -282,7 +282,7 @@ void LCD_I2C_ShowNTCTemperatures(void)
         LCD_I2C_PrintTemperature("DHW Bot", g_botdhwts_temperature_c);
         LCD_I2C_PrintSpaces(1U);
     }
-    else
+    else if (s_lcd_page == 2U)
     {
         LCD_I2C_SetCursor(0U, 0U);
         LCD_I2C_PrintFixedWidth("EEV", 8U);
@@ -293,6 +293,15 @@ void LCD_I2C_ShowNTCTemperatures(void)
         LCD_I2C_PrintFixedWidth("DHW Set", 8U);
         LCD_I2C_PrintSetpointValue(g_tank_temp_setpoint_c);
         LCD_I2C_WriteChar('C');
+        LCD_I2C_PrintSpaces(1U);
+    }
+    else
+    {
+        LCD_I2C_SetCursor(0U, 0U);
+        LCD_I2C_PrintTemperature("SuperHt", g_hp_superheat_delta_t_c);
+        LCD_I2C_PrintSpaces(1U);
+        LCD_I2C_SetCursor(1U, 0U);
+        LCD_I2C_PrintTemperature("SH Target", g_hp_superheat_target_c);
         LCD_I2C_PrintSpaces(1U);
     }
 

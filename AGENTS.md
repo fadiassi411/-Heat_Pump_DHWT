@@ -66,7 +66,7 @@ MPLAB project metadata lists these project files:
   - Implements the PCF8574-backed HD44780 LCD driver over I2C1 at 100 kHz.
   - Configures RB9/SDA1 and RB8/SCL1 as digital open-drain inputs/outputs with external pull-ups.
   - Scans LCD I2C address `0x27` first, then `0x3F`, and uses timeouts so missing LCD hardware does not hang firmware.
-  - Displays only the current requested service pages: SuCTS/EvpTS, TopDHWTS/BotDHWTS, and EEV opening percent/DHWT setpoint.
+  - Displays only the current requested service pages: SuCTS/EvpTS, TopDHWTS/BotDHWTS, EEV opening percent/DHWT setpoint, and Superheat/target superheat.
   - If a heat-pump HP, LP, or Flow fault is active or latched, the LCD stops rolling pages and shows `HP Fault`, `LP Fault`, or `FS Fault`.
   - Holds each LCD page for about 1 second using two 500 ms main-loop update passes.
 
@@ -316,7 +316,7 @@ Rules:
 - I2C LCD display
   - Uses I2C1 at 100 kHz through a PCF8574 backpack.
   - Default address scan order is `0x27`, then `0x3F`.
-  - Display pages roll about once per second: SuCTS/EvpTS, TopDHWTS/BotDHWTS, and EEV opening percent/fixed EEPROM DHWT setpoint.
+  - Display pages roll about once per second: SuCTS/EvpTS, TopDHWTS/BotDHWTS, EEV opening percent/fixed EEPROM DHWT setpoint, and Superheat/target superheat.
   - HP/LP/Flow, heat-pump software safety faults, and blocking sensor faults override the rolling pages and show the matching fault message until the active/latched fault clears.
   - Sensor fault LCD display reads `g_sensor_fault_inputs` and identifies the first active NTC sensor fault by priority: SHWTS, EvpTS, RHWTS, TopDHWTS, BotDHWTS, then OST.
   - LCD routines have I2C timeouts and return without hanging if no backpack is detected.
@@ -720,6 +720,7 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
   - Page 0: SuCTS/Suction temperature on row 0, EvpTS/Evaporator temperature on row 1.
   - Page 1: TopDHWTS/DHWT top temperature on row 0, BotDHWTS/DHWT bottom temperature on row 1.
   - Page 2: EEV opening percentage on row 0, fixed EEPROM DHWT tank setpoint on row 1.
+  - Page 3: Superheat delta-T on row 0, target superheat on row 1.
 - Fault override:
   - If `g_hp_active_fault` or `g_hp_latched_fault` contains HP, LP, Flow, or heat-pump software safety fault bits, the LCD stops rolling pages.
   - Fault display priority is HP first, LP second, Flow third, then software safety faults.
