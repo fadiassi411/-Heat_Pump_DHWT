@@ -17,7 +17,5 @@ void FaultInputs_Init(void);
 bool FaultInputs_IsActive(void);
 bool FaultInputs_IsSensorOpenOrShort(uint16_t adc_raw);
 void FaultInputs_SetSensorFaults(uint16_t sensor_faults);
-void FaultInputs_BlinkUntilClear(void);
-void FaultInputs_DelayOrHandleFault(void);
 
 #endif

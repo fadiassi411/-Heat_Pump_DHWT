@@ -3,10 +3,6 @@
 #include <stdint.h>
 #include "fault_inputs.h"
 
-#define FCY 4000000UL
-#include <libpic30.h>
-
-#define FAULT_INPUT_POLL_LOOPS    50U
 #define SENSOR_SHORT_ADC_MAX      5U
 #define SENSOR_OPEN_ADC_MIN       4090U
 #define SENSOR_ADC_TIMEOUT        0xFFFFU
@@ -69,7 +65,7 @@ bool FaultInputs_IsSensorOpenOrShort(uint16_t adc_raw)
 {
     if (adc_raw == SENSOR_ADC_TIMEOUT)
     {
-        return false;
+        return true;
     }
 
     return ((adc_raw <= SENSOR_SHORT_ADC_MAX) ||
@@ -79,31 +75,4 @@ bool FaultInputs_IsSensorOpenOrShort(uint16_t adc_raw)
 void FaultInputs_SetSensorFaults(uint16_t sensor_faults)
 {
     g_sensor_fault_inputs = sensor_faults;
-}
-
-void FaultInputs_BlinkUntilClear(void)
-{
-    while (FaultInputs_IsActive())
-    {
-        LATDbits.LATD8 ^= 1U;
-        __delay_ms(500);
-    }
-
-    LATDbits.LATD8 = 0;
-}
-
-void FaultInputs_DelayOrHandleFault(void)
-{
-    uint16_t poll_count;
-
-    for (poll_count = 0; poll_count < FAULT_INPUT_POLL_LOOPS; poll_count++)
-    {
-        if (FaultInputs_IsActive())
-        {
-            FaultInputs_BlinkUntilClear();
-            break;
-        }
-
-        __delay_ms(10);
-    }
 }

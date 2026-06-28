@@ -97,6 +97,7 @@ static uint16_t HeatPumpControl_ReadFaults(void);
 static void HeatPumpControl_UpdateSafetySensors(void);
 static uint16_t HeatPumpControl_ReadSafetyFaults(void);
 static void HeatPumpControl_RecordFault(uint16_t faults);
+static bool HeatPumpControl_CriticalFaultRequiresManualReset(uint16_t faults);
 static bool HeatPumpControl_RawFlowFaultIsActive(void);
 static bool HeatPumpControl_PrepositionEEV(void);
 static uint16_t HeatPumpControl_EEVPercentToSteps(uint16_t percent);
@@ -112,8 +113,6 @@ static uint32_t HeatPumpControl_PumpPreRunTargetMs(void);
 static uint32_t HeatPumpControl_PumpPostRunTargetMs(void);
 static uint32_t HeatPumpControl_AntiShortCycleTargetMs(void);
 static uint32_t HeatPumpControl_MinRunTargetMs(void);
-static uint32_t HeatPumpControl_LPBypassTargetMs(void);
-static bool HeatPumpControl_LPBypassIsActive(void);
 static bool HeatPumpControl_EEVMinimumOpeningIsSafe(void);
 static void HeatPumpControl_UpdateRunningEEVControl(void);
 static void HeatPumpControl_ResetRunningEEVControl(void);
@@ -194,8 +193,8 @@ void HeatPumpControl_Task(void)
         }
 
         HeatPumpControl_AllCommandsOff();
-        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_ApplyCommands();
+        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_SetState(HP_STATE_FAULT);
         return;
     }
@@ -204,8 +203,8 @@ void HeatPumpControl_Task(void)
     {
         HeatPumpControl_RecordFault(g_hp_active_fault);
         HeatPumpControl_AllCommandsOff();
-        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_ApplyCommands();
+        HeatPumpControl_CloseEEVForHeater();
         HeatPumpControl_SetState(HP_STATE_FAULT);
         return;
     }
@@ -358,8 +357,7 @@ void HeatPumpControl_Task(void)
             HeatPumpControl_AllCommandsOff();
             g_hp_pump_command = 1U;
             g_hp_fan_command = 1U;
-            g_hp_lp_bypass_remaining_sec =
-                HeatPumpControl_SecondsRemaining(HeatPumpControl_LPBypassTargetMs());
+            g_hp_lp_bypass_remaining_sec = 0U;
             g_hp_anti_short_cycle_remaining_sec =
                 HeatPumpControl_SecondsRemaining(HeatPumpControl_AntiShortCycleTargetMs());
             g_hp_min_run_remaining_sec = 0U;
@@ -392,8 +390,7 @@ void HeatPumpControl_Task(void)
             g_hp_fan_command = 1U;
             g_hp_compressor_start_ready = 1U;
             g_hp_compressor_allowed = 1U;
-            g_hp_lp_bypass_remaining_sec =
-                HeatPumpControl_SecondsRemaining(HeatPumpControl_LPBypassTargetMs());
+            g_hp_lp_bypass_remaining_sec = 0U;
             g_hp_min_run_remaining_sec =
                 HeatPumpControl_SecondsRemaining(HeatPumpControl_MinRunTargetMs());
             g_hp_anti_short_cycle_remaining_sec = 0U;
@@ -444,24 +441,59 @@ void HeatPumpControl_Task(void)
         case HP_STATE_HEATER_RUN:
             HeatPumpControl_AllCommandsOff();
             HeatPumpControl_CloseEEVForHeater();
-            g_hp_flow_proving_active = 0U;
-            g_hp_flow_proven = 0U;
+            g_hp_pump_command = 1U;
+            g_hp_flow_proving_active = (g_hp_flow_proven == 0U) ? 1U : 0U;
             g_hp_compressor_start_ready = 0U;
             g_hp_lp_bypass_remaining_sec = 0U;
             g_hp_min_run_remaining_sec = 0U;
             HeatPumpControl_ResetRunningEEVControl();
 
+            /*
+                Electric heater is treated as water-circuit equipment: pump must
+                run and Flow must prove low before the heater relay can energize.
+            */
             if (g_hp_heating_request != 0U)
             {
                 HeatPumpControl_SetState(HP_STATE_PRECHECK);
             }
             else if (g_hp_heater_request != 0U)
             {
-                g_hp_heater_command =
-                    (g_heater_enabled_setting != 0U) ? 1U : 0U;
+                g_hp_pump_pre_run_remaining_sec =
+                    HeatPumpControl_SecondsRemaining(HeatPumpControl_PumpPreRunTargetMs());
+
+                if (g_hp_flow_proven == 0U)
+                {
+                    if (g_hp_state_elapsed_ms >= HeatPumpControl_PumpPreRunTargetMs())
+                    {
+                        g_hp_pump_pre_run_remaining_sec = 0U;
+
+                        if (HeatPumpControl_RawFlowFaultIsActive() != false)
+                        {
+                            g_hp_flow_proving_active = 0U;
+                            g_hp_active_fault |= FAULT_INPUT_FLOW_MASK;
+                            HeatPumpControl_RecordFault(g_hp_active_fault);
+                            HeatPumpControl_AllCommandsOff();
+                            HeatPumpControl_ApplyCommands();
+                            HeatPumpControl_CloseEEVForHeater();
+                            HeatPumpControl_SetState(HP_STATE_FAULT);
+                            return;
+                        }
+
+                        g_hp_flow_proving_active = 0U;
+                        g_hp_flow_proven = 1U;
+                    }
+                }
+
+                if ((g_hp_flow_proven != 0U) &&
+                    (g_heater_enabled_setting != 0U))
+                {
+                    g_hp_heater_command = 1U;
+                }
             }
             else
             {
+                g_hp_flow_proving_active = 0U;
+                g_hp_flow_proven = 0U;
                 HeatPumpControl_SetState(HP_STATE_IDLE);
             }
             break;
@@ -527,10 +559,7 @@ static uint16_t HeatPumpControl_ReadFaults(void)
 
     if ((raw_faults & FAULT_INPUT_LP_MASK) != 0U)
     {
-        if (HeatPumpControl_LPBypassIsActive() == false)
-        {
-            faults |= FAULT_INPUT_LP_MASK;
-        }
+        faults |= FAULT_INPUT_LP_MASK;
     }
 
     if ((raw_faults & FAULT_INPUT_FLOW_MASK) != 0U)
@@ -546,6 +575,11 @@ static uint16_t HeatPumpControl_ReadFaults(void)
             case HP_STATE_PUMP_PRE_RUN:
             case HP_STATE_FAULT:
             case HP_STATE_HEATER_RUN:
+                if (g_hp_flow_proven == 0U)
+                {
+                    break;
+                }
+                faults |= FAULT_INPUT_FLOW_MASK;
                 break;
 
             default:
@@ -639,10 +673,16 @@ static void HeatPumpControl_RecordFault(uint16_t faults)
     g_hp_last_fault = faults;
     g_hp_latched_fault = faults;
 
+    if (HeatPumpControl_CriticalFaultRequiresManualReset(faults) != false)
+    {
+        g_hp_fault_lockout = 1U;
+        g_hp_fault_retry_pending = 1U;
+        return;
+    }
+
     /*
-        Count one retry per fault event, not once per polling loop. The first
-        three fault events may auto-restart after the fault clears. A later
-        fault locks out until MCU reset or power cycle.
+        Non-critical faults keep the existing limited retry behavior. HP and LP
+        pressure faults are locked out immediately for first real machine tests.
     */
     if (g_hp_fault_retry_pending == 0U)
     {
@@ -657,6 +697,11 @@ static void HeatPumpControl_RecordFault(uint16_t faults)
             g_hp_fault_lockout = 1U;
         }
     }
+}
+
+static bool HeatPumpControl_CriticalFaultRequiresManualReset(uint16_t faults)
+{
+    return ((faults & (FAULT_INPUT_HP_MASK | FAULT_INPUT_LP_MASK)) != 0U);
 }
 
 static bool HeatPumpControl_RawFlowFaultIsActive(void)
@@ -887,26 +932,6 @@ static uint32_t HeatPumpControl_AntiShortCycleTargetMs(void)
 static uint32_t HeatPumpControl_MinRunTargetMs(void)
 {
     return ((uint32_t)HP_MIN_COMPRESSOR_RUN_SEC * 1000UL);
-}
-
-static uint32_t HeatPumpControl_LPBypassTargetMs(void)
-{
-    return ((uint32_t)g_lp_startup_bypass_sec * 1000UL);
-}
-
-static bool HeatPumpControl_LPBypassIsActive(void)
-{
-    switch ((HeatPumpControl_State)g_hp_state)
-    {
-        case HP_STATE_COMPRESSOR_START:
-        case HP_STATE_RUNNING:
-            return (g_hp_state_elapsed_ms < HeatPumpControl_LPBypassTargetMs());
-
-        default:
-            break;
-    }
-
-    return false;
 }
 
 static bool HeatPumpControl_EEVMinimumOpeningIsSafe(void)

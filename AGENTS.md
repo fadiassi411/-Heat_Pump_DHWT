@@ -983,3 +983,14 @@ All existing debug variables are `volatile` so MPLAB watch/debug views can obser
 - Debug symbols are enabled (`enable-symbols=true`).
 - Linker map file generation is configured.
 - Programmer/debug voltage setting in metadata is `3.25` V.
+
+### Real-Machine Safety Update - 2026-06-28
+
+- Fault shutdown order in `heatpump_control.c` must always apply physical outputs off before any blocking EEV close/move command in fault and lockout paths.
+- `main.c` uses a Timer1 1 ms tick (`g_system_ms`) for non-blocking task scheduling and fault LED blinking; the old blocking `DelayAndServiceFaults()` loop is not used.
+- `main.c` checks raw HP/LP fault inputs at the top of the main loop and immediately calls `Outputs_Write(0U)` before ADC, LCD, NTC, or slower 500 ms tasks run.
+- HP/LP compressor protection must also be backed by a hardwired safety chain outside software. The software shutdown path is a secondary protection only.
+- `FaultInputs_IsSensorOpenOrShort()` treats ADC timeout value `0xFFFF` as a sensor fault.
+- Electric heater operation is treated as water-circuit operation: pump must run, Flow must prove low, and the heater output remains off until Flow is proven. A later Flow fault in `HP_STATE_HEATER_RUN` stops heater operation.
+- HP and LP faults latch immediately with `g_hp_fault_lockout = 1` and require MCU reset or power cycle for first real compressor testing. Limited auto-retry remains only for non-critical faults.
+- LP startup bypass is disabled in the active fault decision for this real-machine safety build; LP fault is handled immediately like HP fault.

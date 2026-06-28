@@ -7,6 +7,7 @@
 #include "LCD_I2C.h"
 #include "eeprom_24fc04.h"
 #include "eev.h"
+#include "outputs.h"
 #include "heatpump_control.h"
 
 #pragma config FNOSC = FRC
@@ -54,6 +55,7 @@ volatile uint16_t g_adc_c0rdy = 0;
 volatile uint16_t g_adc_pmd = 0;
 volatile uint16_t g_main_state = 0;
 volatile uint16_t g_loop_counter = 0;
+volatile uint32_t g_system_ms = 0UL;
 volatile uint16_t g_shwts_adc_read_counter = 0;
 
 volatile float g_ntc_resistance = 0.0f;
@@ -69,8 +71,73 @@ volatile float g_shwts_temperature_c = 0.0f;
 #define SENSOR_FAULT_TOPDHWTS_MASK  0x0008U
 #define SENSOR_FAULT_BOTDHWTS_MASK  0x0010U
 #define SENSOR_FAULT_OST_MASK       0x0020U
-#define FAULT_POLL_LOOPS       50U
+#define MAIN_TASK_PERIOD_MS         500UL
+#define FAULT_LED_BLINK_MS          500UL
+#define TIMER1_PRESCALE_VALUE       8UL
+#define TIMER1_1MS_PERIOD_COUNTS    ((FCY / TIMER1_PRESCALE_VALUE / 1000UL) - 1UL)
 
+
+static void Timer1_Init_1ms(void)
+{
+    T1CONbits.TON = 0;
+    T1CONbits.TCS = 0;
+    T1CONbits.TGATE = 0;
+    T1CONbits.TCKPS = 1;   /* 1:8 prescale, FCY = 4 MHz gives PR1 = 499 for 1 ms. */
+    TMR1 = 0;
+    PR1 = (uint16_t)TIMER1_1MS_PERIOD_COUNTS;
+    IFS0bits.T1IF = 0;
+    IEC0bits.T1IE = 1;
+    T1CONbits.TON = 1;
+}
+
+void __attribute__((interrupt, no_auto_psv)) _T1Interrupt(void)
+{
+    IFS0bits.T1IF = 0;
+    g_system_ms++;
+}
+
+static bool MainElapsedMs(uint32_t now_ms, uint32_t previous_ms, uint32_t period_ms)
+{
+    return ((uint32_t)(now_ms - previous_ms) >= period_ms);
+}
+
+static void MainImmediateCriticalFaultShutdown(void)
+{
+    /*
+        HP/LP compressor protection must also be backed by a hardwired safety
+        chain outside software. This software path only removes MCU commands
+        as soon as the raw HP/LP inputs are seen.
+    */
+    if ((g_fault_inputs & (FAULT_INPUT_HP_MASK | FAULT_INPUT_LP_MASK)) != 0U)
+    {
+        Outputs_Write(0U);
+        EEV_AllOutputsOff();
+    }
+}
+
+static void FaultLed_Task(void)
+{
+    static uint32_t last_toggle_ms = 0UL;
+    uint32_t now_ms = g_system_ms;
+    uint16_t led_faults;
+
+    led_faults = (uint16_t)(g_hp_active_fault | g_hp_latched_fault |
+                            (g_fault_inputs & (FAULT_INPUT_HP_MASK | FAULT_INPUT_LP_MASK)));
+
+    if (led_faults != 0U)
+    {
+        if (MainElapsedMs(now_ms, last_toggle_ms, FAULT_LED_BLINK_MS) != false)
+        {
+            last_toggle_ms = now_ms;
+            LATDbits.LATD8 ^= 1U;
+        }
+    }
+    else
+    {
+        LATDbits.LATD8 = 0;
+        last_toggle_ms = now_ms;
+    }
+}
 static void ADC_Init_AN0(void)
 {
     g_main_state = 2;
@@ -284,28 +351,12 @@ static void UpdateSensorFaults(void)
     FaultInputs_SetSensorFaults(sensor_faults);
 }
 
-static void DelayAndServiceFaults(void)
-{
-    uint16_t poll_count;
-
-    for (poll_count = 0; poll_count < FAULT_POLL_LOOPS; poll_count++)
-    {
-        (void)FaultInputs_IsActive();
-        __delay_ms(10);
-    }
-
-    if ((g_hp_active_fault != 0U) || (g_hp_latched_fault != 0U))
-    {
-        LATDbits.LATD8 ^= 1U;
-    }
-    else
-    {
-        LATDbits.LATD8 = 0;
-    }
-}
 
 int main(void)
 {
+    uint32_t last_task_ms = 0UL;
+    uint32_t now_ms;
+
     /*
         Disable watchdog for this ADC debug test.
     */
@@ -343,6 +394,7 @@ int main(void)
 
     HeatPumpControl_Init();
     EEV_Init();
+    Timer1_Init_1ms();
 
     g_adc_adon = ADCON1Lbits.ADON;
     g_adc_c0en = ADCON3Hbits.C0EN;
@@ -352,6 +404,15 @@ int main(void)
     while (1)
     {
         (void)FaultInputs_IsActive();
+        MainImmediateCriticalFaultShutdown();
+        FaultLed_Task();
+
+        now_ms = g_system_ms;
+        if (MainElapsedMs(now_ms, last_task_ms, MAIN_TASK_PERIOD_MS) == false)
+        {
+            continue;
+        }
+        last_task_ms = now_ms;
 
         g_loop_counter++;
         g_ntc_adc_raw = ADC_Read_AN0();
@@ -381,8 +442,6 @@ int main(void)
         LCD_I2C_ShowNTCTemperatures();
         UpdateSensorFaults();
         HeatPumpControl_Task();
-
-        DelayAndServiceFaults();   // breakpoint here
     }
 
     return 0;
